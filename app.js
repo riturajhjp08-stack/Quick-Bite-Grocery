@@ -1306,6 +1306,19 @@ async function apiRequest(endpoint, options = {}) {
   const token = admin ? getAdminToken() : auth ? getAuthToken() : '';
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  // Keep request routing consistent after fallback activates.
+  // Switching between remote and local demo backends can invalidate auth sessions.
+  if (localDemoBackendActive) {
+    return localApiRequest(endpoint, {
+      method,
+      body,
+      auth,
+      admin,
+      token,
+      reason: 'sticky-local-demo',
+    });
+  }
+
   let response;
   const requestUrl = new URL(endpoint, API_BASE_URL).toString();
   try {
@@ -3020,6 +3033,7 @@ function closeModal() {
 
 async function placeOrder() {
   if (!currentUser) {
+    authIntent = { type: 'checkout' };
     closeModal();
     openAuthModal('login');
     return;
@@ -3045,6 +3059,7 @@ async function placeOrder() {
   } catch (error) {
     handleSessionExpiry(error, { auth: true });
     if (error?.status === 401) {
+      authIntent = { type: 'checkout' };
       closeModal();
       openAuthModal('login');
       toast('Sign in again to place your order.', 'info');
@@ -3105,6 +3120,7 @@ async function placeOrder() {
   } catch (error) {
     handleSessionExpiry(error, { auth: true });
     if (error?.status === 401) {
+      authIntent = { type: 'checkout' };
       closeModal();
       openAuthModal('login');
       toast('Sign in again to place your order.', 'info');
