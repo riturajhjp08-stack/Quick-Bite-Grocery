@@ -82,7 +82,7 @@ const demoRestaurants = [
     category: 'organic',
     promo: 'Fresh organic picks daily',
     tags: ['Organic', 'Farm Direct'],
-    img: 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=800&q=80&auto=format&fit=crop',
+    img: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&q=80&auto=format&fit=crop',
     address: 'Sector 9, Panchkula',
     menu: [
       { id: 40301, name: 'Organic Spinach (250 g)', desc: 'Pesticide-free spinach leaves.', price: 52, img: 'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 34, reorderLevel: 10, category: 'vegetables', unit: 'pack', sku: 'ORG-SPN-250' },
@@ -93,6 +93,30 @@ const demoRestaurants = [
       { id: 40306, name: 'Granola Honey Nuts (400 g)', desc: 'Baked granola with almonds.', price: 285, img: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 21, reorderLevel: 6, category: 'snacks', unit: 'pack', sku: 'ORG-GRL-400' },
       { id: 40307, name: 'Herbal Green Tea (25 bags)', desc: 'Wellness antioxidant blend.', price: 179, img: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 40, reorderLevel: 12, category: 'beverages', unit: 'box', sku: 'ORG-TEA-25' },
       { id: 40308, name: 'Bamboo Tissue Roll (4 pack)', desc: 'Eco-friendly soft tissue rolls.', price: 149, img: 'https://images.unsplash.com/photo-1583947582886-f40ec95dd752?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 28, reorderLevel: 8, category: 'household', unit: 'pack', sku: 'ORG-TIS-4P' },
+    ],
+  },
+  {
+    id: 404,
+    name: 'Verka Dairy',
+    cuisine: 'Milk, Curd, Paneer, Lassi',
+    rating: 4.7,
+    deliveryTime: 16,
+    minOrder: 99,
+    avgCost: 420,
+    category: 'dairy',
+    promo: 'Fresh dairy delivered daily',
+    tags: ['Dairy Only', 'Brand Store'],
+    img: 'https://commons.wikimedia.org/wiki/Special:FilePath/Verka_Logo_RGB_72dpi.jpg',
+    address: 'Sector 34, Chandigarh',
+    menu: [
+      { id: 40401, name: 'Verka Toned Milk (1 L)', desc: 'Pasteurized toned milk for daily use.', price: 66, img: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400&q=80&auto=format', veg: true, bestseller: true, stock: 120, reorderLevel: 20, category: 'dairy', unit: 'ltr', sku: 'VRK-MLK-1L' },
+      { id: 40402, name: 'Verka Full Cream Milk (500 ml)', desc: 'Rich and creamy milk, hygienically packed.', price: 38, img: 'https://images.unsplash.com/photo-1601436423474-51738541c9c5?w=400&q=80&auto=format', veg: true, bestseller: true, stock: 140, reorderLevel: 24, category: 'dairy', unit: 'pack', sku: 'VRK-FCM-500' },
+      { id: 40403, name: 'Verka Curd (400 g)', desc: 'Fresh probiotic curd with a smooth texture.', price: 46, img: 'https://images.unsplash.com/photo-1571212515416-fef01fc43637?w=400&q=80&auto=format', veg: true, bestseller: true, stock: 100, reorderLevel: 16, category: 'dairy', unit: 'cup', sku: 'VRK-CRD-400' },
+      { id: 40404, name: 'Verka Paneer (200 g)', desc: 'Soft paneer block for curries and snacks.', price: 92, img: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&q=80&auto=format', veg: true, bestseller: true, stock: 90, reorderLevel: 14, category: 'dairy', unit: 'pack', sku: 'VRK-PNR-200' },
+      { id: 40405, name: 'Verka Plain Lassi (180 ml)', desc: 'Classic chilled lassi for everyday refreshment.', price: 24, img: 'https://images.unsplash.com/photo-1626201850129-a96f7f07c151?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 160, reorderLevel: 30, category: 'dairy', unit: 'bottle', sku: 'VRK-LSI-180' },
+      { id: 40406, name: 'Verka Sweet Lassi (200 ml)', desc: 'Sweet Punjabi lassi with a creamy taste.', price: 28, img: 'https://images.unsplash.com/photo-1626201850129-a96f7f07c151?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 150, reorderLevel: 24, category: 'dairy', unit: 'bottle', sku: 'VRK-SLS-200' },
+      { id: 40407, name: 'Verka Butter (100 g)', desc: 'Salted table butter made from fresh cream.', price: 58, img: 'https://images.unsplash.com/photo-1589985270958-b3f00b3e1f87?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 95, reorderLevel: 14, category: 'dairy', unit: 'pack', sku: 'VRK-BTR-100' },
+      { id: 40408, name: 'Verka Ghee (500 ml)', desc: 'Traditional ghee with rich aroma and purity.', price: 349, img: 'https://images.unsplash.com/photo-1626201850129-a96f7f07c151?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 70, reorderLevel: 10, category: 'dairy', unit: 'jar', sku: 'VRK-GHE-500' },
     ],
   },
 ];
@@ -2139,7 +2163,7 @@ function startTrackingTimer(orderId) {
   stopTrackingTimer();
   trackingTimerId = window.setInterval(() => {
     if (currentPage !== 'tracking') return;
-    renderTrackingPage(orderId, { keepSuccess: false });
+    renderTrackingPage(orderId);
   }, 1000);
 }
 
@@ -2149,8 +2173,7 @@ function trackOrder(orderId) {
   showPage('tracking');
 }
 
-async function renderTrackingPage(orderId = trackingOrderId, options = {}) {
-  const { keepSuccess = true } = options;
+async function renderTrackingPage(orderId = trackingOrderId) {
   const content = document.getElementById('trackingContent');
   if (!content) return;
 
@@ -2170,7 +2193,9 @@ async function renderTrackingPage(orderId = trackingOrderId, options = {}) {
     }
 
     const metrics = getTrackingMetrics(order);
-    const showSuccess = keepSuccess && successOrderId === order.orderId;
+    const showSuccess = successOrderId === order.orderId
+      && order.status !== 'Delivered'
+      && order.status !== 'Cancelled';
     content.innerHTML = `
       <div class="page-heading">
         <button class="back-btn" onclick="goBack()">← Back</button>
@@ -2282,10 +2307,20 @@ async function renderTrackingPage(orderId = trackingOrderId, options = {}) {
       </div>
     `;
 
-    if (order.status === 'Delivered' || order.status === 'Cancelled') stopTrackingTimer();
-    else startTrackingTimer(order.orderId);
+    if (order.status === 'Delivered' || order.status === 'Cancelled') {
+      stopTrackingTimer();
+      if (successOrderId === order.orderId) {
+        successOrderId = '';
+        sessionStorage.removeItem('qb_success_order');
+      }
+    } else {
+      startTrackingTimer(order.orderId);
+    }
 
     if (showSuccess) {
+      // Persist success UI while the order is still in-progress.
+      sessionStorage.setItem('qb_success_order', successOrderId);
+    } else if (successOrderId === order.orderId) {
       successOrderId = '';
       sessionStorage.removeItem('qb_success_order');
     }
@@ -4004,9 +4039,7 @@ async function updateStatus(orderId, status) {
 
     await renderAdmin();
     if (currentPage === 'orders') await renderOrders({ silent: true });
-    if (currentPage === 'tracking' && trackingOrderId === orderId) {
-      await renderTrackingPage(orderId, { keepSuccess: false });
-    }
+    if (currentPage === 'tracking' && trackingOrderId === orderId) await renderTrackingPage(orderId);
 
     toast(`Order ${orderId} → ${status}`, 'success');
   } catch (error) {
