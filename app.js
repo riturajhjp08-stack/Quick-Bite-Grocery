@@ -572,6 +572,26 @@ function localFindProductById(state, productId) {
   return null;
 }
 
+function localFindProductByName(state, productName, preferredPrice = NaN) {
+  const normalizedName = normalizeLocalText(productName, 120).toLowerCase();
+  if (!normalizedName) return null;
+
+  const targetPrice = Number(preferredPrice);
+  let fallback = null;
+
+  for (const storeEntry of state.catalogStores || []) {
+    for (const product of storeEntry.menu || []) {
+      if (normalizeLocalText(product?.name, 120).toLowerCase() !== normalizedName) continue;
+
+      const match = { store: storeEntry, product };
+      if (Number.isFinite(targetPrice) && Number(product?.price) === targetPrice) return match;
+      if (!fallback) fallback = match;
+    }
+  }
+
+  return fallback;
+}
+
 function localResolveOrderItems(state, incomingItems = [], fallbackStoreId = 0) {
   const items = [];
 
@@ -579,13 +599,31 @@ function localResolveOrderItems(state, incomingItems = [], fallbackStoreId = 0) 
     const storeId = Number(rawItem.restId) || Number(fallbackStoreId) || 0;
     const productId = Number(rawItem.id) || 0;
     const qty = Math.max(0, Number(rawItem.qty) || 0);
-    if (!storeId || !productId || !qty) continue;
+    if (!productId || !qty) continue;
 
-    const storeEntry = localGetStoreById(state, storeId);
+    let storeEntry = localGetStoreById(state, storeId);
+    let product = (storeEntry?.menu || []).find(entry => entry.id === productId) || null;
+
+    if ((!storeEntry || !product) && productId) {
+      const fallbackById = localFindProductById(state, productId);
+      if (fallbackById) {
+        storeEntry = fallbackById.store;
+        product = fallbackById.product;
+      }
+    }
+
+    if ((!storeEntry || !product) && rawItem?.name) {
+      const fallbackByName = localFindProductByName(state, rawItem.name, rawItem.price);
+      if (fallbackByName) {
+        storeEntry = fallbackByName.store;
+        product = fallbackByName.product;
+      }
+    }
+
     if (!storeEntry) {
       return { error: 'Selected store is unavailable right now.' };
     }
-    const product = (storeEntry.menu || []).find(entry => entry.id === productId);
+
     if (!product) {
       return { error: `${rawItem.name || 'A product'} is no longer available in ${storeEntry.name}.` };
     }
@@ -1845,14 +1883,64 @@ function hasMixedCart() {
   return new Set(cart.map(item => item.restId)).size > 1;
 }
 
-function syncCartWithCatalog() {
-  if (!cart.length) return;
+function normalizeCartLookupName(name) {
+  return String(name || '').trim().toLowerCase();
+}
 
+function resolveCatalogItemForCart(item) {
+  const targetStoreId = Number(item?.restId) || 0;
+  const targetProductId = Number(item?.id) || 0;
+  const targetName = normalizeCartLookupName(item?.name);
+  const targetPrice = Number(item?.price);
+
+  let storeEntry = targetStoreId
+    ? restaurants.find(entry => Number(entry.id) === targetStoreId) || null
+    : null;
+  let product = (storeEntry?.menu || []).find(entry => Number(entry.id) === targetProductId) || null;
+
+  if (!product && targetProductId) {
+    for (const candidateStore of restaurants) {
+      const candidateProduct = (candidateStore.menu || []).find(entry => Number(entry.id) === targetProductId);
+      if (!candidateProduct) continue;
+      storeEntry = candidateStore;
+      product = candidateProduct;
+      break;
+    }
+  }
+
+  if (!product && targetName) {
+    let fallback = null;
+
+    for (const candidateStore of restaurants) {
+      for (const candidateProduct of candidateStore.menu || []) {
+        if (normalizeCartLookupName(candidateProduct.name) !== targetName) continue;
+        const candidate = { storeEntry: candidateStore, product: candidateProduct };
+        if (Number.isFinite(targetPrice) && Number(candidateProduct.price) === targetPrice) return candidate;
+        if (!fallback) fallback = candidate;
+      }
+    }
+
+    if (fallback) {
+      storeEntry = fallback.storeEntry;
+      product = fallback.product;
+    }
+  }
+
+  if (!storeEntry || !product) return null;
+  return { storeEntry, product };
+}
+
+function syncCartWithCatalog() {
+  if (!cart.length) return { changed: false, removedCount: 0 };
+
+  const originalCount = cart.length;
   const normalizedCart = [];
 
   cart.forEach(item => {
-    const storeEntry = restaurants.find(entry => entry.id === item.restId);
-    const product = storeEntry?.menu?.find(entry => entry.id === item.id);
+    const resolved = resolveCatalogItemForCart(item);
+    if (!resolved) return;
+
+    const { storeEntry, product } = resolved;
     const maxStock = Number(product?.stock || 0);
     if (!product || maxStock <= 0) return;
 
@@ -1870,12 +1958,14 @@ function syncCartWithCatalog() {
   });
 
   const changed = JSON.stringify(normalizedCart) !== JSON.stringify(cart);
-  if (!changed) return;
+  const removedCount = Math.max(0, originalCount - normalizedCart.length);
+  if (!changed) return { changed: false, removedCount: 0 };
 
   cart = normalizedCart;
   if (!cart.length) clearAppliedCoupon();
   saveCart();
   updateCartCount();
+  return { changed: true, removedCount };
 }
 
 function getVisibleRestaurants() {
@@ -3263,6 +3353,10 @@ async function withCheckoutAuthRetry(task) {
 // ─────────────────────────────────────────────
 function openModal() {
   if (!requireAuth({ type: 'checkout' })) return;
+  const syncResult = syncCartWithCatalog();
+  if (syncResult?.removedCount > 0) {
+    toast('Cart updated with latest availability.', 'info');
+  }
   if (!cart.length) { toast('Cart is empty!', 'error'); return; }
   if (hasMixedCart()) {
     toast('Please keep items from only one store before checkout', 'error');
@@ -3318,6 +3412,11 @@ async function placeOrder() {
     closeModal();
     openAuthModal('login');
     return;
+  }
+
+  const syncResult = syncCartWithCatalog();
+  if (syncResult?.removedCount > 0) {
+    toast('Some items were updated to match the latest catalog.', 'info');
   }
   if (!cart.length) { toast('Your cart is empty', 'error'); return; }
   if (hasMixedCart()) { toast('Checkout supports one store per order', 'error'); return; }

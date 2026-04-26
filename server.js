@@ -798,6 +798,26 @@ function findCatalogProductById(storeData, productId) {
   return null;
 }
 
+function findCatalogProductByName(storeData, productName, preferredPrice = NaN) {
+  const normalizedName = normalizeText(productName, 120).toLowerCase();
+  if (!normalizedName) return null;
+
+  const targetPrice = Number(preferredPrice);
+  let fallback = null;
+
+  for (const storeEntry of storeData.catalogStores || []) {
+    for (const product of storeEntry.menu || []) {
+      if (normalizeText(product?.name, 120).toLowerCase() !== normalizedName) continue;
+
+      const match = { store: storeEntry, product };
+      if (Number.isFinite(targetPrice) && Number(product?.price) === targetPrice) return match;
+      if (!fallback) fallback = match;
+    }
+  }
+
+  return fallback;
+}
+
 function sanitizeCatalogStores(stores = []) {
   return stores
     .map(entry => sanitizeCatalogStore(entry))
@@ -890,16 +910,33 @@ function buildOrderItemsFromCatalog(storeData, incomingItems = [], fallbackStore
 
   for (const rawItem of incomingItems) {
     const itemStoreId = toWholeNumber(rawItem.restId, toWholeNumber(fallbackStoreId, 0));
-    const storeEntry = getCatalogStoreById(storeData, itemStoreId);
-    if (!storeEntry) {
-      return { error: 'Selected grocery store is unavailable right now.' };
-    }
-
     const productId = toWholeNumber(rawItem.id, 0);
     const qty = toWholeNumber(rawItem.qty, 0);
     if (!productId || !qty) continue;
 
-    const product = (storeEntry.menu || []).find(item => item.id === productId);
+    let storeEntry = getCatalogStoreById(storeData, itemStoreId);
+    let product = (storeEntry?.menu || []).find(item => item.id === productId) || null;
+
+    if ((!storeEntry || !product) && productId) {
+      const fallbackById = findCatalogProductById(storeData, productId);
+      if (fallbackById) {
+        storeEntry = fallbackById.store;
+        product = fallbackById.product;
+      }
+    }
+
+    if ((!storeEntry || !product) && rawItem?.name) {
+      const fallbackByName = findCatalogProductByName(storeData, rawItem.name, rawItem.price);
+      if (fallbackByName) {
+        storeEntry = fallbackByName.store;
+        product = fallbackByName.product;
+      }
+    }
+
+    if (!storeEntry) {
+      return { error: 'Selected grocery store is unavailable right now.' };
+    }
+
     if (!product) {
       return { error: `${rawItem.name || 'A product'} is no longer available in ${storeEntry.name}.` };
     }
@@ -1119,6 +1156,8 @@ function normalizeOrderItems(items, restId) {
       id: toWholeNumber(item.id, 0),
       restId: toWholeNumber(item.restId, toWholeNumber(restId, 0)),
       qty: toWholeNumber(item.qty, 0),
+      name: normalizeText(item?.name, 120),
+      price: Number.isFinite(Number(item?.price)) ? Number(item.price) : null,
     }))
     .filter(item => item.id && item.qty > 0);
 }
