@@ -117,6 +117,8 @@ let authMode     = 'login';
 let authIntent   = null;
 let trackingOrderId = '';
 let trackingTimerId = null;
+let ordersRefreshTimerId = null;
+let orderSuccessAnimationTimerId = null;
 let successOrderId = sessionStorage.getItem('qb_success_order') || '';
 let ordersCache = [];
 let adminOrdersCache = [];
@@ -629,7 +631,7 @@ function localSyncOrderStatuses(state) {
     const etaMinutes = Number(order.etaMinutes || 30);
     const elapsedRatio = Math.max(0, (now - Number(order.createdAt || now)) / (etaMinutes * 60 * 1000));
     const nextStatus = elapsedRatio >= 1 ? 'Delivered' : elapsedRatio >= 0.35 ? 'Confirmed' : 'Pending';
-    if (order.status !== nextStatus) {
+    if (getStatusRank(nextStatus) > getStatusRank(order.status)) {
       order.status = nextStatus;
       changed = true;
     }
@@ -2111,6 +2113,21 @@ function getTrackingMetrics(order) {
   };
 }
 
+function stopOrdersRefreshTimer() {
+  if (ordersRefreshTimerId) {
+    window.clearInterval(ordersRefreshTimerId);
+    ordersRefreshTimerId = null;
+  }
+}
+
+function startOrdersRefreshTimer() {
+  stopOrdersRefreshTimer();
+  ordersRefreshTimerId = window.setInterval(() => {
+    if (currentPage !== 'orders') return;
+    renderOrders({ silent: true });
+  }, 4000);
+}
+
 function stopTrackingTimer() {
   if (trackingTimerId) {
     window.clearInterval(trackingTimerId);
@@ -2431,6 +2448,7 @@ function showPage(page, options = {}) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   closeLocationDrop();
   if (page !== 'tracking') stopTrackingTimer();
+  if (page !== 'orders') stopOrdersRefreshTimer();
   if (remember && currentPage !== page) prevPage = currentPage;
   currentPage = page;
 
@@ -2443,6 +2461,7 @@ function showPage(page, options = {}) {
   } else if (page === 'orders') {
     document.getElementById('ordersPage').classList.add('active');
     renderOrders();
+    startOrdersRefreshTimer();
   } else if (page === 'tracking') {
     document.getElementById('trackingPage').classList.add('active');
     renderTrackingPage();
@@ -3032,6 +3051,35 @@ function closeModal() {
   document.getElementById('checkoutModal').classList.remove('open');
 }
 
+function showOrderPlacedSuccess(orderId = '') {
+  const overlay = document.getElementById('orderSuccessOverlay');
+  const message = document.getElementById('orderSuccessMessage');
+  if (!overlay) return Promise.resolve();
+
+  if (message) {
+    message.textContent = orderId
+      ? `Order ID ${orderId} confirmed`
+      : 'Your grocery basket is confirmed';
+  }
+
+  overlay.classList.add('show');
+  overlay.setAttribute('aria-hidden', 'false');
+
+  if (orderSuccessAnimationTimerId) {
+    window.clearTimeout(orderSuccessAnimationTimerId);
+    orderSuccessAnimationTimerId = null;
+  }
+
+  return new Promise(resolve => {
+    orderSuccessAnimationTimerId = window.setTimeout(() => {
+      overlay.classList.remove('show');
+      overlay.setAttribute('aria-hidden', 'true');
+      orderSuccessAnimationTimerId = null;
+      resolve();
+    }, 1350);
+  });
+}
+
 async function placeOrder() {
   if (!currentUser) {
     authIntent = { type: 'checkout' };
@@ -3113,6 +3161,7 @@ async function placeOrder() {
       if (field) field.value = '';
     });
 
+    await showOrderPlacedSuccess(order.orderId);
     toast(`Order placed! ID: ${order.orderId}`, 'success');
     trackingOrderId = order.orderId;
     successOrderId = order.orderId;
@@ -3138,15 +3187,18 @@ async function placeOrder() {
 // ─────────────────────────────────────────────
 //  ORDERS PAGE
 // ─────────────────────────────────────────────
-async function renderOrders() {
+async function renderOrders(options = {}) {
+  const { silent = false } = options;
   const div = document.getElementById('ordersList');
   if (!div) return;
 
-  div.innerHTML = `
-    <div class="empty-state">
-      <h3>Loading your orders...</h3>
-      <p>Pulling the latest order updates from the backend.</p>
-    </div>`;
+  if (!silent) {
+    div.innerHTML = `
+      <div class="empty-state">
+        <h3>Loading your orders...</h3>
+        <p>Pulling the latest order updates from the backend.</p>
+      </div>`;
+  }
 
   try {
     const orders = await fetchCurrentUserOrders();
@@ -4218,7 +4270,7 @@ function toast(msg, type='success') {
 // ─────────────────────────────────────────────
 window.onload = async function() {
   if (window.location.protocol === 'file:') {
-    toast('Run `npm start` and open http://localhost:3000 to use the real backend.', 'info');
+    toast('Run `npm start` and open http://127.0.0.1:3000 to use the real backend.', 'info');
   }
 
   await restoreUserSession();

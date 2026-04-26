@@ -2072,6 +2072,97 @@ input, textarea, select { font-family: var(--font-body); outline: none; }
   gap: 10px;
 }
 
+/* ══════════════ ORDER SUCCESS ══════════════ */
+.order-success-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 420;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(17, 24, 39, 0.36);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+.order-success-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.order-success-card {
+  width: min(360px, 100%);
+  border-radius: 24px;
+  background: white;
+  text-align: center;
+  padding: 28px 22px 24px;
+  box-shadow: 0 28px 48px rgba(16, 24, 40, 0.24);
+  border: 1px solid #daf5e3;
+  transform: translateY(16px) scale(0.96);
+  transition: transform 0.22s ease;
+}
+.order-success-overlay.show .order-success-card {
+  transform: translateY(0) scale(1);
+}
+.order-success-check {
+  width: 86px;
+  height: 86px;
+  margin: 0 auto 14px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 28%, #7cf2ac 0%, #24b36d 68%, #1c9c5f 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 0 rgba(36, 179, 109, 0.42);
+  animation: orderTickPulse 0.95s ease-out 0.2s 2;
+}
+.order-success-check svg {
+  width: 66px;
+  height: 66px;
+}
+.osc-circle {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 4;
+}
+.osc-tick {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+}
+.order-success-overlay.show .osc-tick {
+  animation: orderTickDraw 0.42s ease forwards 0.1s, orderTickBlink 0.48s ease 0.08s;
+}
+.order-success-card h3 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #119652;
+  margin-bottom: 6px;
+}
+.order-success-card p {
+  font-size: 13px;
+  color: var(--text-2);
+}
+@keyframes orderTickDraw {
+  from { stroke-dashoffset: 48; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes orderTickBlink {
+  0% { opacity: 0; }
+  35% { opacity: 1; }
+  58% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes orderTickPulse {
+  0% { box-shadow: 0 0 0 0 rgba(36, 179, 109, 0.42); }
+  100% { box-shadow: 0 0 0 18px rgba(36, 179, 109, 0); }
+}
+
 /* ══════════════ TOAST ══════════════ */
 .toast-wrap {
   position: fixed;
