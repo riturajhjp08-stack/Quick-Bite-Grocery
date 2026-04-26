@@ -285,6 +285,25 @@ function cloneDemoCatalogStores() {
   }));
 }
 
+function mergeMissingDefaultStores(state) {
+  const defaultStores = cloneDemoCatalogStores();
+  const existingById = new Map((state.catalogStores || []).map(storeEntry => [storeEntry.id, storeEntry]));
+  const LEGACY_ORGANIC_COVER = 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=800&q=80&auto=format&fit=crop';
+
+  defaultStores.forEach(defaultStore => {
+    const existing = existingById.get(defaultStore.id);
+    if (!existing) {
+      state.catalogStores.push(defaultStore);
+      return;
+    }
+
+    // Keep user-edited stores intact, but upgrade stale legacy defaults.
+    if (existing.name === defaultStore.name && (existing.img === LEGACY_ORGANIC_COVER || !existing.img)) {
+      existing.img = defaultStore.img;
+    }
+  });
+}
+
 function createInitialLocalDemoStore() {
   const now = Date.now();
   const catalogStores = cloneDemoCatalogStores();
@@ -391,6 +410,8 @@ function ensureLocalDemoShape(source) {
     .filter(Boolean);
 
   if (!state.catalogStores.length) state.catalogStores = cloneDemoCatalogStores();
+  mergeMissingDefaultStores(state);
+  state.catalogStores.sort((a, b) => a.id - b.id);
 
   const validStoreIds = new Set(state.catalogStores.map(storeEntry => storeEntry.id));
   if (!Array.isArray(state.storeManagers)) state.storeManagers = [];
@@ -664,6 +685,19 @@ function localSyncOrderStatuses(state) {
   return changed;
 }
 
+function updateBackendModePill() {
+  const pill = document.getElementById('backendModePill');
+  if (!pill) return;
+
+  const isFallback = Boolean(localDemoBackendActive);
+  pill.textContent = isFallback ? 'Fallback demo' : 'Live backend';
+  pill.classList.toggle('fallback', isFallback);
+  pill.classList.toggle('live', !isFallback);
+  pill.title = isFallback
+    ? 'Backend API unavailable. Running on local browser demo data.'
+    : 'Connected to backend API.';
+}
+
 function activateLocalDemoBackend(reason = 'unreachable') {
   if (!localDemoBackendActive) {
     localDemoBackendActive = true;
@@ -672,6 +706,7 @@ function activateLocalDemoBackend(reason = 'unreachable') {
       toast('Backend not reachable. Running in local demo mode.', 'info');
     }
   }
+  updateBackendModePill();
 }
 
 async function localApiRequest(endpoint, options = {}) {
@@ -1392,6 +1427,7 @@ async function apiRequest(endpoint, options = {}) {
     throw error;
   }
 
+  updateBackendModePill();
   return payload;
 }
 
@@ -4322,6 +4358,8 @@ function toast(msg, type='success') {
 //  INIT
 // ─────────────────────────────────────────────
 window.onload = async function() {
+  updateBackendModePill();
+
   if (window.location.protocol === 'file:') {
     toast('Run `npm start` and open http://127.0.0.1:3000 to use the real backend.', 'info');
   }
