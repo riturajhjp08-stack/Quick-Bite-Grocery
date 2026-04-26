@@ -748,7 +748,6 @@ async function tryRecoverLiveBackend() {
 
   localDemoBackendActive = false;
   updateBackendModePill();
-  toast('Backend reconnected. Switched back to live mode.', 'success');
   return true;
 }
 
@@ -756,9 +755,6 @@ function activateLocalDemoBackend(reason = 'unreachable') {
   if (!localDemoBackendActive) {
     localDemoBackendActive = true;
     console.warn(`QuickBite backend unavailable (${reason}). Switching to local demo backend mode.`);
-    if (typeof toast === 'function') {
-      toast('Backend not reachable. Running in local demo mode.', 'info');
-    }
   }
   updateBackendModePill();
 }
@@ -1398,12 +1394,19 @@ function clearAdminSession() {
 function resolveApiBaseUrl() {
   if (typeof window === 'undefined') return `http://127.0.0.1:${DEFAULT_API_PORT}`;
 
-  const { protocol, hostname, port, origin } = window.location;
+  const { protocol, hostname, origin } = window.location;
   if (protocol === 'file:') {
     return `http://127.0.0.1:${DEFAULT_API_PORT}`;
   }
 
-  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
+  const isPrivateIpv4 = /^10\./.test(hostname)
+    || /^192\.168\./.test(hostname)
+    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+  const isLocalHost = hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '::1'
+    || hostname.endsWith('.local')
+    || isPrivateIpv4;
   if (isLocalHost) {
     // Force IPv4 localhost for backend to avoid localhost/IPv6 resolution mismatch.
     return `http://127.0.0.1:${DEFAULT_API_PORT}`;
@@ -1561,6 +1564,37 @@ async function createAdminProduct(payload) {
     admin: true,
     body: payload,
   });
+}
+
+function applyCreatedProductsToCatalog(products = []) {
+  if (!Array.isArray(products) || !products.length) return;
+
+  const productsByStore = new Map();
+  products.forEach(product => {
+    const storeId = Number(product?.restId) || 0;
+    if (!storeId) return;
+    if (!productsByStore.has(storeId)) productsByStore.set(storeId, []);
+    productsByStore.get(storeId).push({ ...product });
+  });
+
+  if (!productsByStore.size) return;
+
+  restaurants = restaurants.map(storeEntry => {
+    const additions = productsByStore.get(Number(storeEntry?.id) || 0);
+    if (!additions?.length) return storeEntry;
+
+    const existingIds = new Set((storeEntry.menu || []).map(item => Number(item.id) || 0));
+    const fresh = additions.filter(item => !existingIds.has(Number(item.id) || 0));
+    if (!fresh.length) return storeEntry;
+
+    return {
+      ...storeEntry,
+      menu: [...fresh, ...(storeEntry.menu || [])],
+    };
+  });
+
+  restaurantDirectory.clear();
+  registerRestaurants(restaurants);
 }
 
 async function createAdminStore(payload) {
@@ -3992,7 +4026,8 @@ async function adminCreateProductFromForm() {
   }
 
   try {
-    await createAdminProduct(payload);
+    const response = await createAdminProduct(payload);
+    applyCreatedProductsToCatalog(response?.products || []);
     [nameField, priceField, unitField, stockField, reorderField, skuField, imageField, descField]
       .filter(Boolean)
       .forEach(field => {
@@ -4002,9 +4037,13 @@ async function adminCreateProductFromForm() {
     if (bestsellerField) bestsellerField.checked = false;
     if (allStoresField) allStoresField.checked = false;
 
-    await loadRestaurantsForLocation(activeLocation, { toastOnFail: false });
+    try {
+      await loadRestaurantsForLocation(activeLocation, { toastOnFail: false });
+    } catch {}
     adminPanelTab = 'add-grocery';
-    await renderAdmin();
+    try {
+      await renderAdmin();
+    } catch {}
     toast(payload.applyToAll ? 'Product added to all stores' : 'Product added successfully', 'success');
   } catch (error) {
     handleSessionExpiry(error, { admin: true });
