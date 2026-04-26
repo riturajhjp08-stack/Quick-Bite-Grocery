@@ -52,7 +52,7 @@ Useful env vars:
    npm start
    ```
 3. Open:
-   - `http://localhost:3000`
+   - `http://127.0.0.1:3000`
 
 If backend is unreachable, the app now auto-switches to a local demo backend mode in-browser, so ordering and admin inventory management still work with demo grocery data.
 

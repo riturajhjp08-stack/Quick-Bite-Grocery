@@ -1289,8 +1289,9 @@ function resolveApiBaseUrl() {
   }
 
   const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
-  if (isLocalHost && port !== DEFAULT_API_PORT) {
-    return `${protocol}//${hostname}:${DEFAULT_API_PORT}`;
+  if (isLocalHost) {
+    // Force IPv4 localhost for backend to avoid localhost/IPv6 resolution mismatch.
+    return `http://127.0.0.1:${DEFAULT_API_PORT}`;
   }
 
   // In deployed environments (like Vercel), use same-origin API routes.

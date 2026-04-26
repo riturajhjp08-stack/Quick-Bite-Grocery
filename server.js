@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT || 3000);
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || '';
 const ROOT_DIR = __dirname;
 const DATA_DIR = path.join(ROOT_DIR, 'data');
 const STORE_PATH = path.join(DATA_DIR, 'store.json');
@@ -2374,10 +2374,16 @@ async function startServer() {
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(PORT, HOST, resolve);
+    if (HOST) {
+      server.listen(PORT, HOST, resolve);
+      return;
+    }
+
+    server.listen(PORT, resolve);
   });
 
-  console.log(`QuickBite server running at http://${HOST}:${PORT}`);
+  const hostLabel = HOST || '0.0.0.0';
+  console.log(`QuickBite server running at http://${hostLabel}:${PORT}`);
   return server;
 }
 
