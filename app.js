@@ -1474,17 +1474,25 @@ async function apiRequest(endpoint, options = {}) {
 
   const token = admin ? getAdminToken() : auth ? getAuthToken() : '';
   const requiresSessionToken = (auth || admin) && Boolean(token);
+  const userToken = getAuthToken();
+  const adminToken = getAdminToken();
+  const hasStickyLocalUserSession = Boolean(userToken) && hasLocalDemoSessionToken(userToken, { admin: false });
+  const hasStickyLocalAdminSession = Boolean(adminToken) && hasLocalDemoSessionToken(adminToken, { admin: true });
+  const hasStickyLocalSession = hasStickyLocalUserSession || hasStickyLocalAdminSession;
+  const useLocalDemoForPublicApi = !requiresSessionToken && endpoint.startsWith('/api/') && hasStickyLocalSession;
   const useLocalDemoForSession = requiresSessionToken && hasLocalDemoSessionToken(token, { admin });
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  if (useLocalDemoForSession) {
+  if (useLocalDemoForSession || useLocalDemoForPublicApi) {
     return localApiRequest(endpoint, {
       method,
       body,
       auth,
       admin,
       token,
-      reason: admin ? 'sticky-local-admin-session' : 'sticky-local-user-session',
+      reason: useLocalDemoForSession
+        ? (admin ? 'sticky-local-admin-session' : 'sticky-local-user-session')
+        : 'sticky-local-session-context',
     });
   }
 
@@ -1675,6 +1683,33 @@ function applyCreatedProductsToCatalog(products = []) {
   registerRestaurants(restaurants);
 }
 
+function applyCreatedStoreToCatalog(storeEntry) {
+  const id = Number(storeEntry?.id) || 0;
+  const name = normalizeLocalText(storeEntry?.name, 120);
+  if (!id || !name) return;
+
+  const normalizedStore = {
+    ...storeEntry,
+    id,
+    name,
+    tags: Array.isArray(storeEntry?.tags) ? [...storeEntry.tags] : [],
+    menu: Array.isArray(storeEntry?.menu) ? storeEntry.menu.map(item => ({ ...item })) : [],
+  };
+
+  const existingIndex = restaurants.findIndex(entry => Number(entry?.id) === id);
+  if (existingIndex >= 0) {
+    restaurants[existingIndex] = {
+      ...restaurants[existingIndex],
+      ...normalizedStore,
+    };
+  } else {
+    restaurants = [normalizedStore, ...restaurants];
+  }
+
+  restaurantDirectory.clear();
+  registerRestaurants(restaurants);
+}
+
 async function createAdminStore(payload) {
   return apiRequest('/api/admin/stores', {
     method: 'POST',
@@ -1723,7 +1758,9 @@ function registerRestaurants(list = []) {
 }
 
 function getRestaurantById(id) {
-  return restaurantDirectory.get(id) || restaurants.find(restaurant => restaurant.id === id) || null;
+  const normalizedId = Number(id) || 0;
+  if (!normalizedId) return null;
+  return restaurantDirectory.get(normalizedId) || restaurants.find(restaurant => Number(restaurant.id) === normalizedId) || null;
 }
 
 function setRestaurants(list, mode = 'catalog') {
@@ -1876,11 +1913,16 @@ function updateCartActions() {
 }
 
 function getCartRestaurant() {
-  return getRestaurantById(cart[0]?.restId) || null;
+  return getRestaurantById(Number(cart[0]?.restId) || 0) || null;
 }
 
 function hasMixedCart() {
-  return new Set(cart.map(item => item.restId)).size > 1;
+  const uniqueStoreIds = new Set(
+    cart
+      .map(item => Number(item?.restId) || 0)
+      .filter(Boolean)
+  );
+  return uniqueStoreIds.size > 1;
 }
 
 function normalizeCartLookupName(name) {
@@ -3003,7 +3045,8 @@ function menuItemHTML(item) {
 }
 
 function renderCartSidebar() {
-  const restCart = cart.filter(c => c.restId === (currentRest ? currentRest.id : null));
+  const activeStoreId = Number(currentRest?.id) || 0;
+  const restCart = cart.filter(c => Number(c.restId) === activeStoreId);
   const subtotal = restCart.reduce((s,i) => s + i.price * i.qty, 0);
   const delivery = subtotal >= 299 ? 0 : 40;
   const tax      = Math.round(subtotal * 0.05);
@@ -3060,15 +3103,17 @@ function renderCartSidebar() {
 //  CART LOGIC
 // ─────────────────────────────────────────────
 function changeQty(itemId, restId, delta) {
-  const rest = restaurants.find(r => r.id === restId);
+  const normalizedStoreId = Number(restId) || 0;
+  const normalizedItemId = Number(itemId) || 0;
+  const rest = restaurants.find(r => Number(r.id) === normalizedStoreId);
   if (!rest) return;
-  const menuItem = rest.menu.find(m => m.id === itemId);
+  const menuItem = rest.menu.find(m => Number(m.id) === normalizedItemId);
   if (!menuItem) return;
   const maxStock = Number(menuItem.stock || 0);
-  const existing = cart.find(c => c.id === itemId);
+  const existing = cart.find(c => Number(c.id) === normalizedItemId);
   const cartRestaurant = getCartRestaurant();
 
-  if (!existing && delta > 0 && cartRestaurant && cartRestaurant.id !== restId) {
+  if (!existing && delta > 0 && cartRestaurant && Number(cartRestaurant.id) !== normalizedStoreId) {
     const shouldStartNewCart = window.confirm(
       `Your cart already has items from ${cartRestaurant.name}. Start a new cart for ${rest.name}?`
     );
@@ -3091,11 +3136,11 @@ function changeQty(itemId, restId, delta) {
 
   if (existing) {
     existing.qty += delta;
-    if (existing.qty <= 0) cart = cart.filter(c => c.id !== itemId);
+    if (existing.qty <= 0) cart = cart.filter(c => Number(c.id) !== normalizedItemId);
   } else if (delta > 0) {
     cart.push({
       id: menuItem.id,
-      restId,
+      restId: normalizedStoreId,
       name: menuItem.name,
       price: menuItem.price,
       img: menuItem.img,
@@ -3430,10 +3475,6 @@ async function placeOrder() {
   if (!name || !phone || !address) { toast('Please fill all required fields', 'error'); return; }
   if (!/^\d{10}$/.test(phone))     { toast('Enter a valid 10-digit phone number', 'error'); return; }
 
-  // Get store details from first cart item
-  const restId   = cart[0]?.restId;
-  const restObj  = restaurants.find(r => r.id === restId);
-
   try {
     await withCheckoutAuthRetry(() => syncCurrentUserProfile({ name, phone, address }, { rerenderProfile: false }));
   } catch (error) {
@@ -3450,20 +3491,49 @@ async function placeOrder() {
   }
 
   try {
-    const data = await withCheckoutAuthRetry(() => apiRequest('/api/orders', {
-      method: 'POST',
-      auth: true,
-      body: {
-        restId,
-        restName: restObj ? restObj.name : 'QuickBite Grocery',
-        restImg: restObj ? restObj.img : '',
-        etaMinutes: restObj ? restObj.deliveryTime : 30,
-        customer: { name, phone, address, note },
-        items: cart.map(item => ({ ...item })),
-        couponCode: appliedCouponCode,
-        payment,
-      },
-    }));
+    const createOrderRequest = () => {
+      const restId = Number(cart[0]?.restId) || 0;
+      const restObj = restaurants.find(r => Number(r.id) === restId);
+      return withCheckoutAuthRetry(() => apiRequest('/api/orders', {
+        method: 'POST',
+        auth: true,
+        body: {
+          restId,
+          restName: restObj ? restObj.name : 'QuickBite Grocery',
+          restImg: restObj ? restObj.img : '',
+          etaMinutes: restObj ? restObj.deliveryTime : 30,
+          customer: { name, phone, address, note },
+          items: cart.map(item => ({
+            ...item,
+            id: Number(item.id) || 0,
+            restId: Number(item.restId) || restId,
+            qty: Math.max(1, Number(item.qty) || 1),
+          })),
+          couponCode: appliedCouponCode,
+          payment,
+        },
+      }));
+    };
+
+    let data;
+    try {
+      data = await createOrderRequest();
+    } catch (error) {
+      if (error?.status === 409) {
+        await loadRestaurantsForLocation(activeLocation, { toastOnFail: false });
+        const refreshed = syncCartWithCatalog();
+        if (refreshed?.removedCount > 0) {
+          toast('Cart was refreshed with latest stock. Please review before checkout.', 'info');
+        }
+        if (!cart.length) {
+          toast('Your cart has no available items right now.', 'error');
+          return;
+        }
+        data = await createOrderRequest();
+      } else {
+        throw error;
+      }
+    }
 
     if (data.user) {
       setCurrentUser(data.user);
@@ -3476,8 +3546,8 @@ async function placeOrder() {
     const placedCart = cart.map(item => ({ ...item }));
 
     placedCart.forEach(item => {
-      const storeEntry = restaurants.find(entry => entry.id === item.restId);
-      const product = storeEntry?.menu?.find(entry => entry.id === item.id);
+      const storeEntry = restaurants.find(entry => Number(entry.id) === Number(item.restId));
+      const product = storeEntry?.menu?.find(entry => Number(entry.id) === Number(item.id));
       if (product) {
         product.stock = Math.max(0, Number(product.stock || 0) - Number(item.qty || 0));
       }
@@ -4286,6 +4356,7 @@ async function adminCreateStoreFromForm() {
   try {
     const data = await createAdminStore(payload);
     const createdStore = data?.store || {};
+    applyCreatedStoreToCatalog(createdStore);
     adminSelectedStoreId = Number(createdStore.id) || adminSelectedStoreId;
     adminCreatedStoreMeta = {
       id: Number(createdStore.id) || 0,
@@ -4373,7 +4444,7 @@ async function reorderItems(orderId) {
   }
 
   const cartRestaurant = getCartRestaurant();
-  if (cart.length && cartRestaurant && cartRestaurant.id !== order.restId) {
+  if (cart.length && cartRestaurant && Number(cartRestaurant.id) !== Number(order.restId)) {
     const replaceCart = window.confirm(
       `Your cart has items from ${cartRestaurant.name}. Replace them with the reorder from ${order.restName}?`
     );
@@ -4381,26 +4452,37 @@ async function reorderItems(orderId) {
   }
 
   const unavailableItems = [];
+  const outOfStockItems = [];
   const limitedItems = [];
   const nextCart = [];
 
   order.items.forEach(item => {
-    const restId = item.restId || order.restId;
-    const storeEntry = restaurants.find(entry => entry.id === restId);
-    const liveProduct = storeEntry?.menu?.find(entry => entry.id === item.id);
+    const resolved = resolveCatalogItemForCart({
+      id: item.id,
+      restId: item.restId || order.restId,
+      name: item.name,
+      price: item.price,
+    });
+    const storeEntry = resolved?.storeEntry || null;
+    const liveProduct = resolved?.product || null;
     const liveStock = Number(liveProduct?.stock || 0);
 
-    if (!liveProduct || liveStock <= 0) {
+    if (!liveProduct || !storeEntry) {
       unavailableItems.push(item.name);
       return;
     }
+    if (liveStock <= 0) {
+      outOfStockItems.push(item.name);
+      return;
+    }
 
-    const qty = Math.min(item.qty, liveStock);
-    if (qty < item.qty) limitedItems.push(`${item.name} (${qty}/${item.qty})`);
+    const requestedQty = Math.max(1, Number(item.qty) || 1);
+    const qty = Math.min(requestedQty, liveStock);
+    if (qty < requestedQty) limitedItems.push(`${item.name} (${qty}/${requestedQty})`);
 
     nextCart.push({
       id: liveProduct.id,
-      restId,
+      restId: storeEntry.id,
       name: liveProduct.name,
       price: liveProduct.price,
       img: liveProduct.img,
@@ -4411,6 +4493,10 @@ async function reorderItems(orderId) {
   });
 
   if (!nextCart.length) {
+    if (unavailableItems.length && !outOfStockItems.length) {
+      toast('Reorder unavailable because these items are no longer in the catalog', 'error');
+      return;
+    }
     toast('Reorder unavailable because all items are out of stock', 'error');
     return;
   }
@@ -4423,6 +4509,8 @@ async function reorderItems(orderId) {
   showPage('cart');
   if (unavailableItems.length) {
     toast(`Skipped unavailable items: ${unavailableItems.slice(0, 2).join(', ')}`, 'info');
+  } else if (outOfStockItems.length) {
+    toast(`Skipped out-of-stock items: ${outOfStockItems.slice(0, 2).join(', ')}`, 'info');
   } else if (limitedItems.length) {
     toast(`Adjusted quantity for: ${limitedItems.slice(0, 2).join(', ')}`, 'info');
   } else {
@@ -4626,6 +4714,15 @@ window.onload = async function() {
   }
 
   await restoreUserSession();
+  cart = (Array.isArray(cart) ? cart : [])
+    .map(item => ({
+      ...item,
+      id: Number(item?.id) || 0,
+      restId: Number(item?.restId) || 0,
+      qty: Math.max(1, Number(item?.qty) || 1),
+    }))
+    .filter(item => item.id && item.restId && item.qty);
+  saveCart();
   setRestaurants([], 'catalog');
   updateLocationLabel();
   renderLocationOptions();
