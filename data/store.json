@@ -389,18 +389,6 @@
   ],
   "sessions": [
     {
-      "token": "926722037e0b9e19d12c21ff250830e126dffba8c133cb3a678dc24d046a04ba",
-      "userId": "820c4fcf-94b3-4d9f-84dd-a4df0b0f785f",
-      "createdAt": 1776615726023,
-      "expiresAt": 1777220526023
-    },
-    {
-      "token": "f2e406ce87bee20dec5b631c75e24b02012c8ce742903f3d96e917e32d93abd3",
-      "userId": "820c4fcf-94b3-4d9f-84dd-a4df0b0f785f",
-      "createdAt": 1776615789352,
-      "expiresAt": 1777220589352
-    },
-    {
       "token": "9a22eef09a5b29e3934b8ae2386d11afce68ebd03edae8707d7719ce354918a0",
       "userId": "820c4fcf-94b3-4d9f-84dd-a4df0b0f785f",
       "createdAt": 1776659522675,

@@ -2178,6 +2178,12 @@ async function renderTrackingPage(orderId = trackingOrderId, options = {}) {
       </div>
       ${showSuccess ? `
         <section class="tracking-success">
+          <div class="tracking-success-check" aria-hidden="true">
+            <svg viewBox="0 0 72 72">
+              <circle class="tsc-circle" cx="36" cy="36" r="30"></circle>
+              <path class="tsc-tick" d="M22 37 L32 47 L50 27"></path>
+            </svg>
+          </div>
           <span class="tracking-kicker">${order.payment === 'COD' ? 'Order confirmed' : 'Payment successful'}</span>
           <h2>${order.payment === 'COD' ? 'Your order is placed.' : 'Your payment went through.'}</h2>
           <p>${order.restName} has received your grocery order and packing is already in progress.</p>
@@ -3978,16 +3984,30 @@ async function adminCreateStoreFromForm() {
 
 async function updateStatus(orderId, status) {
   try {
-    await apiRequest(`/api/admin/orders/${encodeURIComponent(orderId)}/status`, {
+    const data = await apiRequest(`/api/admin/orders/${encodeURIComponent(orderId)}/status`, {
       method: 'PATCH',
       admin: true,
       body: { status },
     });
 
-    await loadRestaurantsForLocation(activeLocation, { toastOnFail: false });
-    renderAdmin();
-    if (currentPage === 'orders') renderOrders();
-    if (currentPage === 'tracking' && trackingOrderId === orderId) renderTrackingPage(orderId, { keepSuccess: false });
+    const updatedOrder = data?.order || null;
+    if (updatedOrder?.orderId) {
+      adminOrdersCache = adminOrdersCache.map(order => order.orderId === updatedOrder.orderId ? { ...order, ...updatedOrder } : order);
+      ordersCache = ordersCache.map(order => order.orderId === updatedOrder.orderId ? { ...order, ...updatedOrder } : order);
+    }
+
+    try {
+      await loadRestaurantsForLocation(activeLocation, { toastOnFail: false });
+    } catch {
+      // Ignore catalog refresh issues; order status UI should still refresh.
+    }
+
+    await renderAdmin();
+    if (currentPage === 'orders') await renderOrders({ silent: true });
+    if (currentPage === 'tracking' && trackingOrderId === orderId) {
+      await renderTrackingPage(orderId, { keepSuccess: false });
+    }
+
     toast(`Order ${orderId} → ${status}`, 'success');
   } catch (error) {
     handleSessionExpiry(error, { admin: true });
