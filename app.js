@@ -106,7 +106,7 @@ const demoRestaurants = [
     category: 'dairy',
     promo: 'Fresh dairy delivered daily',
     tags: ['Dairy Only', 'Brand Store'],
-    img: 'https://commons.wikimedia.org/wiki/Special:FilePath/Verka_Logo_RGB_72dpi.jpg',
+    img: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&q=80&auto=format&fit=crop',
     address: 'Sector 34, Chandigarh',
     menu: [
       { id: 40401, name: 'Verka Toned Milk (1 L)', desc: 'Pasteurized toned milk for daily use.', price: 66, img: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400&q=80&auto=format', veg: true, bestseller: true, stock: 120, reorderLevel: 20, category: 'dairy', unit: 'ltr', sku: 'VRK-MLK-1L' },
@@ -1474,18 +1474,13 @@ async function apiRequest(endpoint, options = {}) {
       && response.status === 404;
     if (isLikelyWrongServer) {
       const reachable = await probeLiveBackend({ force: true });
-      if (reachable) {
-        const error = new Error('API route is unavailable on the connected backend.');
-        error.status = response.status;
-        throw error;
-      }
       return localApiRequest(endpoint, {
         method,
         body,
         auth,
         admin,
         token,
-        reason: 'api-not-found-on-origin',
+        reason: reachable ? 'api-route-unavailable' : 'api-not-found-on-origin',
       });
     }
     const message = isLikelyWrongServer

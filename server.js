@@ -150,7 +150,7 @@ const DEFAULT_GROCERY_STORES = [
     category: 'household',
     promo: 'Everyday low prices',
     tags: ['Value Deals', 'Fast Delivery'],
-    img: 'https://images.unsplash.com/photo-1604719312566-8912e9c8a213?w=800&q=80&auto=format&fit=crop',
+    img: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&q=80&auto=format&fit=crop',
     address: 'Dwarka, Delhi',
     menu: [
       { id: 30401, name: 'Sugar (1 kg)', desc: 'Refined sulphur-free sugar for kitchen essentials.', price: 52, img: 'https://images.unsplash.com/photo-1588158829875-c0c8f93230f9?w=400&q=80&auto=format', veg: true, bestseller: false, stock: 76, reorderLevel: 16, category: 'essentials', unit: 'kg', sku: 'CSV-SUG-1K' },
@@ -174,7 +174,7 @@ const DEFAULT_GROCERY_STORES = [
     category: 'dairy',
     promo: 'Fresh dairy delivered daily',
     tags: ['Dairy Only', 'Brand Store'],
-    img: 'https://commons.wikimedia.org/wiki/Special:FilePath/Verka_Logo_RGB_72dpi.jpg',
+    img: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&q=80&auto=format&fit=crop',
     address: 'Sector 34, Chandigarh',
     menu: [
       { id: 30501, name: 'Verka Toned Milk (1 L)', desc: 'Pasteurized toned milk for daily use.', price: 66, img: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400&q=80&auto=format', veg: true, bestseller: true, stock: 120, reorderLevel: 20, category: 'dairy', unit: 'ltr', sku: 'VRK-MLK-1L' },
