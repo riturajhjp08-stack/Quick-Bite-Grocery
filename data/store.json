@@ -940,7 +940,7 @@
         "Value Deals",
         "Fast Delivery"
       ],
-      "img": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&q=80&auto=format&fit=crop",
+      "img": "https://images.unsplash.com/photo-1604719312566-8912e9c8a213?w=800&q=80&auto=format&fit=crop",
       "address": "Dwarka, Delhi",
       "menu": [
         {
@@ -1252,10 +1252,10 @@
     },
     {
       "storeId": 305,
-      "passwordHash": "8036809f8b35f47589ca39f72f81eee1d69a0cad8b4d58bcab938b4eadec24468e3bcaf3a82c161ae8ae7483606a17b86d3136690939c7ff3f6106e1745fc399",
-      "passwordSalt": "383d378706d5d4e089a9b5cd0554e166",
-      "createdAt": 1777235768734,
-      "updatedAt": 1777235768734
+      "passwordHash": "cf5593fdac9406d3166e94610cf3f7f1727a994308173c7b81847f24a59f76beb790d795756d346cd60a535dc5383325cf3693b730f9a2c54b9fd560f78c1c0a",
+      "passwordSalt": "2d393ade5c384b184007f51844f53f47",
+      "createdAt": 1777236978845,
+      "updatedAt": 1777236978845
     }
   ]
 }

@@ -484,6 +484,18 @@ function getLocalAdminSession(state, token) {
   return state.adminSessions.find(entry => entry.token === token && entry.expiresAt > Date.now()) || null;
 }
 
+function hasLocalDemoSessionToken(token, options = {}) {
+  const { admin = false } = options;
+  if (!token) return false;
+
+  const state = readLocalDemoStore();
+  pruneLocalSessions(state);
+  writeLocalDemoStore(state);
+
+  const sessions = admin ? state.adminSessions : state.sessions;
+  return sessions.some(entry => entry.token === token);
+}
+
 function getLocalAdminAccess(state, token) {
   const session = getLocalAdminSession(state, token);
   if (!session) return null;
@@ -1423,13 +1435,31 @@ async function apiRequest(endpoint, options = {}) {
   };
 
   const token = admin ? getAdminToken() : auth ? getAuthToken() : '';
+  const requiresSessionToken = (auth || admin) && Boolean(token);
+  const useLocalDemoForSession = requiresSessionToken && hasLocalDemoSessionToken(token, { admin });
   if (token) headers.Authorization = `Bearer ${token}`;
+
+  if (useLocalDemoForSession) {
+    return localApiRequest(endpoint, {
+      method,
+      body,
+      auth,
+      admin,
+      token,
+      reason: admin ? 'sticky-local-admin-session' : 'sticky-local-user-session',
+    });
+  }
 
   // Keep request routing consistent after fallback activates.
   // When fallback is active, periodically probe live backend and recover automatically.
   if (localDemoBackendActive) {
     const restored = await tryRecoverLiveBackend();
     if (!restored) {
+      if (requiresSessionToken) {
+        const error = new Error('Live backend is unreachable for this signed-in session. Please try again.');
+        error.status = 503;
+        throw error;
+      }
       return localApiRequest(endpoint, {
         method,
         body,
@@ -1456,6 +1486,11 @@ async function apiRequest(endpoint, options = {}) {
       error.status = 503;
       throw error;
     }
+    if (requiresSessionToken) {
+      const error = new Error('Unable to reach the backend for your signed-in account. Please retry.');
+      error.status = 503;
+      throw error;
+    }
     return localApiRequest(endpoint, {
       method,
       body,
@@ -1477,6 +1512,11 @@ async function apiRequest(endpoint, options = {}) {
       && response.status === 404;
     if (isLikelyWrongServer) {
       const reachable = await probeLiveBackend({ force: true });
+      if (requiresSessionToken) {
+        const error = new Error('Connected backend is missing this signed-in API route. Please restart backend and sign in again.');
+        error.status = 503;
+        throw error;
+      }
       return localApiRequest(endpoint, {
         method,
         body,
@@ -3201,6 +3241,23 @@ async function syncCurrentUserProfile(updates = {}, options = {}) {
   return currentUser;
 }
 
+async function withCheckoutAuthRetry(task) {
+  try {
+    return await task();
+  } catch (error) {
+    if (error?.status !== 401 || !getAuthToken()) {
+      throw error;
+    }
+
+    await restoreUserSession();
+    if (!currentUser || !getAuthToken()) {
+      throw error;
+    }
+
+    return task();
+  }
+}
+
 // ─────────────────────────────────────────────
 //  CHECKOUT MODAL
 // ─────────────────────────────────────────────
@@ -3279,7 +3336,7 @@ async function placeOrder() {
   const restObj  = restaurants.find(r => r.id === restId);
 
   try {
-    await syncCurrentUserProfile({ name, phone, address }, { rerenderProfile: false });
+    await withCheckoutAuthRetry(() => syncCurrentUserProfile({ name, phone, address }, { rerenderProfile: false }));
   } catch (error) {
     handleSessionExpiry(error, { auth: true });
     if (error?.status === 401) {
@@ -3289,10 +3346,12 @@ async function placeOrder() {
       toast('Sign in again to place your order.', 'info');
       return;
     }
+    toast(error.message, 'error');
+    return;
   }
 
   try {
-    const data = await apiRequest('/api/orders', {
+    const data = await withCheckoutAuthRetry(() => apiRequest('/api/orders', {
       method: 'POST',
       auth: true,
       body: {
@@ -3305,7 +3364,7 @@ async function placeOrder() {
         couponCode: appliedCouponCode,
         payment,
       },
-    });
+    }));
 
     if (data.user) {
       setCurrentUser(data.user);
