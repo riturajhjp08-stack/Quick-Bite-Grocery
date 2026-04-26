@@ -123,6 +123,7 @@ let adminOrdersCache = [];
 let adminCatalogCache = { stores: [], summary: null, globalSummary: null, access: null };
 let adminPanelTab = 'overview';
 let adminSelectedStoreId = 0;
+let adminCreatedStoreMeta = null;
 let userOrderCount = 0;
 let restaurantDataMode = 'catalog';
 let liveRestaurantsLoading = false;
@@ -956,6 +957,65 @@ async function localApiRequest(endpoint, options = {}) {
     };
   }
 
+  if (method === 'POST' && pathname === '/api/admin/stores') {
+    const access = getLocalAdminAccess(state, token);
+    if (!access) {
+      throw localCreateError('Admin session expired. Please unlock the dashboard again.', 401);
+    }
+    if (access.role === 'store') {
+      throw localCreateError('Store managers cannot create new stores.', 403);
+    }
+
+    const name = normalizeLocalText(body.name, 120);
+    if (!name) throw localCreateError('Store name is required', 400);
+
+    const normalizedName = name.toLowerCase();
+    const duplicate = (state.catalogStores || []).some(storeEntry => normalizeLocalText(storeEntry.name, 120).toLowerCase() === normalizedName);
+    if (duplicate) throw localCreateError('A store with this name already exists', 409);
+
+    const maxStoreId = (state.catalogStores || [])
+      .reduce((max, storeEntry) => Math.max(max, Number(storeEntry.id) || 0), 400);
+    const nextStoreId = maxStoreId + 1;
+    const managerPassword = normalizeLocalText(body.managerPassword, 120) || localDefaultStorePassword(nextStoreId);
+
+    const storeEntry = normalizeLocalStore({
+      id: nextStoreId,
+      name,
+      cuisine: normalizeLocalText(body.cuisine, 120) || 'Daily Grocery Essentials',
+      rating: Math.min(5, Math.max(0, Number(body.rating) || 4.5)),
+      deliveryTime: Math.min(90, Math.max(10, Number(body.deliveryTime) || 30)),
+      minOrder: Math.max(0, Number(body.minOrder) || 199),
+      avgCost: Math.max(0, Number(body.avgCost) || 500),
+      category: normalizeLocalText(body.category, 40).toLowerCase() || 'essentials',
+      promo: normalizeLocalText(body.promo, 90) || 'Fresh grocery picks available daily',
+      tags: Array.isArray(body.tags)
+        ? body.tags.map(tag => normalizeLocalText(tag, 30)).filter(Boolean)
+        : ['New Store'],
+      img: normalizeLocalText(body.img, 500) || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&q=80&auto=format&fit=crop',
+      address: normalizeLocalText(body.address, 180) || 'Service area not specified',
+      menu: [],
+    });
+    if (!storeEntry) throw localCreateError('Invalid store payload', 400);
+
+    state.catalogStores.push(storeEntry);
+    state.storeManagers = (state.storeManagers || []).filter(entry => Number(entry.storeId) !== storeEntry.id);
+    state.storeManagers.push({
+      storeId: storeEntry.id,
+      password: managerPassword,
+      createdAt: Date.now(),
+    });
+    writeLocalDemoStore(state);
+
+    const scopedStores = scopeLocalStores(state, access);
+    return {
+      store: storeEntry,
+      managerPassword,
+      summary: localInventorySummary(scopedStores),
+      globalSummary: localInventorySummary(state.catalogStores),
+      access,
+    };
+  }
+
   if (method === 'POST' && pathname === '/api/admin/products') {
     const access = getLocalAdminAccess(state, token);
     if (!access) {
@@ -1217,6 +1277,7 @@ function clearAdminSession() {
   adminCatalogCache = { stores: [], summary: null, globalSummary: null, access: null };
   adminPanelTab = 'overview';
   adminSelectedStoreId = 0;
+  adminCreatedStoreMeta = null;
 }
 
 function resolveApiBaseUrl() {
@@ -1356,6 +1417,14 @@ async function updateAdminProductStock(productId, delta) {
 
 async function createAdminProduct(payload) {
   return apiRequest('/api/admin/products', {
+    method: 'POST',
+    admin: true,
+    body: payload,
+  });
+}
+
+async function createAdminStore(payload) {
+  return apiRequest('/api/admin/stores', {
     method: 'POST',
     admin: true,
     body: payload,
@@ -3210,7 +3279,10 @@ async function renderAdmin() {
     if (!stores.some(storeEntry => storeEntry.id === Number(adminSelectedStoreId))) {
       adminSelectedStoreId = stores[0]?.id || 0;
     }
-    if (!['overview', 'add-grocery', 'orders'].includes(adminPanelTab)) {
+    const validTabs = isStoreAdmin
+      ? ['overview', 'add-grocery', 'orders']
+      : ['overview', 'add-grocery', 'add-store', 'orders'];
+    if (!validTabs.includes(adminPanelTab)) {
       adminPanelTab = 'overview';
     }
     const selectedStoreInsight = storeInsights.find(storeEntry => storeEntry.id === Number(adminSelectedStoreId)) || null;
@@ -3218,6 +3290,16 @@ async function renderAdmin() {
     const categoryOptions = ADMIN_PRODUCT_CATEGORIES
       .map(category => `<option value="${category}">${category.replace(/^\w/, char => char.toUpperCase())}</option>`)
       .join('');
+    const storeCategoryOptions = ADMIN_PRODUCT_CATEGORIES
+      .map(category => `<option value="${category}"${category === 'essentials' ? ' selected' : ''}>${category.replace(/^\w/, char => char.toUpperCase())}</option>`)
+      .join('');
+    const createdStoreBanner = !isStoreAdmin && adminCreatedStoreMeta
+      ? `
+      <div class="admin-role-banner super">
+        <strong>Store Added: ${adminCreatedStoreMeta.name}</strong>
+        <span>Store ID ${adminCreatedStoreMeta.id} is ready. Manager password: ${adminCreatedStoreMeta.managerPassword}</span>
+      </div>`
+      : '';
     const storeTabButtons = storeInsights.map(storeEntry => `
       <button
         type="button"
@@ -3276,6 +3358,7 @@ async function renderAdmin() {
           : 'Store managers can log in using Store<StoreId>@QB (for example: Store401@QB).'}
         </span>
       </div>
+      ${createdStoreBanner}
 
       <div class="admin-tabs" role="tablist" aria-label="Admin Sections">
         <button type="button" class="admin-tab-btn" data-admin-tab="overview" onclick="setAdminPanelTab('overview')">
@@ -3284,6 +3367,10 @@ async function renderAdmin() {
         <button type="button" class="admin-tab-btn" data-admin-tab="add-grocery" onclick="setAdminPanelTab('add-grocery')">
           Add Grocery By Shop
         </button>
+        ${isStoreAdmin ? '' : `
+        <button type="button" class="admin-tab-btn" data-admin-tab="add-store" onclick="setAdminPanelTab('add-store')">
+          Add New Store
+        </button>`}
         <button type="button" class="admin-tab-btn" data-admin-tab="orders" onclick="setAdminPanelTab('orders')">
           Order Operations
         </button>
@@ -3433,6 +3520,93 @@ async function renderAdmin() {
           `}
       </section>
 
+      <section class="admin-tab-panel" data-admin-panel="add-store">
+        ${isStoreAdmin
+          ? `<div class="empty-state"><h3>Super admin only</h3><p>Store managers cannot create new stores.</p></div>`
+          : `
+            <div class="admin-add-shell">
+              <div class="admin-add-header">
+                <div>
+                  <p class="admin-tab-kicker">Network Expansion</p>
+                  <h3>Add A New Grocery Store</h3>
+                  <p>Create a store, auto-generate manager access, then start adding products.</p>
+                </div>
+                <div class="admin-add-spotlight">Store Manager Login: <strong>Store&lt;StoreId&gt;@QB</strong></div>
+              </div>
+
+              <div class="admin-add-card">
+                <div class="admin-add-card-head">
+                  <h4>Store Profile</h4>
+                  <p>Fill the essentials below. Remaining fields are optional.</p>
+                </div>
+                <div class="admin-add-card-body">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Store Name *</label>
+                      <input id="adminStoreName" type="text" placeholder="GreenMart Sector 45"/>
+                    </div>
+                    <div class="form-group">
+                      <label>Address</label>
+                      <input id="adminStoreAddress" type="text" placeholder="Sector 45, Chandigarh"/>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Category</label>
+                      <select id="adminStoreCategory">${storeCategoryOptions}</select>
+                    </div>
+                    <div class="form-group">
+                      <label>Cuisine / Focus</label>
+                      <input id="adminStoreCuisine" type="text" placeholder="Daily Grocery Essentials"/>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Delivery Time (min)</label>
+                      <input id="adminStoreDeliveryTime" type="number" min="10" max="90" placeholder="30"/>
+                    </div>
+                    <div class="form-group">
+                      <label>Store Rating (0-5)</label>
+                      <input id="adminStoreRating" type="number" min="0" max="5" step="0.1" placeholder="4.5"/>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Minimum Order (Rs)</label>
+                      <input id="adminStoreMinOrder" type="number" min="0" placeholder="199"/>
+                    </div>
+                    <div class="form-group">
+                      <label>Average Basket (Rs)</label>
+                      <input id="adminStoreAvgCost" type="number" min="0" placeholder="500"/>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Promo Line</label>
+                      <input id="adminStorePromo" type="text" placeholder="Fresh grocery picks available daily"/>
+                    </div>
+                    <div class="form-group">
+                      <label>Image URL</label>
+                      <input id="adminStoreImage" type="url" placeholder="https://images.unsplash.com/..."/>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label>Tags (comma separated)</label>
+                      <input id="adminStoreTags" type="text" placeholder="New Store, Express Delivery"/>
+                    </div>
+                    <div class="form-group">
+                      <label>Manager Password (optional)</label>
+                      <input id="adminStoreManagerPassword" type="text" placeholder="Auto: Store&lt;StoreId&gt;@QB"/>
+                    </div>
+                  </div>
+                  <button class="btn-primary admin-add-submit" type="button" onclick="adminCreateStoreFromForm()">Create Store</button>
+                </div>
+              </div>
+            </div>
+          `}
+      </section>
+
       <section class="admin-tab-panel" data-admin-panel="orders">
         <div class="page-heading"><h2>Order Operations</h2></div>
         ${!orders.length
@@ -3488,7 +3662,7 @@ async function renderAdmin() {
 }
 
 function setAdminPanelTab(tab, options = {}) {
-  const validTabs = new Set(['overview', 'add-grocery', 'orders']);
+  const validTabs = new Set(['overview', 'add-grocery', 'add-store', 'orders']);
   const nextTab = String(tab || '').trim();
   if (!validTabs.has(nextTab)) return;
 
@@ -3622,6 +3796,107 @@ async function adminCreateProductFromForm() {
     adminPanelTab = 'add-grocery';
     await renderAdmin();
     toast(payload.applyToAll ? 'Product added to all stores' : 'Product added successfully', 'success');
+  } catch (error) {
+    handleSessionExpiry(error, { admin: true });
+    if (error?.status === 401) {
+      renderAdmin();
+      return;
+    }
+    toast(error.message, 'error');
+  }
+}
+
+async function adminCreateStoreFromForm() {
+  const access = normalizeAdminAccess(adminAccess);
+  if (access.role === 'store') {
+    toast('Only super admin can create new stores', 'error');
+    return;
+  }
+
+  const nameField = document.getElementById('adminStoreName');
+  const addressField = document.getElementById('adminStoreAddress');
+  const categoryField = document.getElementById('adminStoreCategory');
+  const cuisineField = document.getElementById('adminStoreCuisine');
+  const deliveryField = document.getElementById('adminStoreDeliveryTime');
+  const ratingField = document.getElementById('adminStoreRating');
+  const minOrderField = document.getElementById('adminStoreMinOrder');
+  const avgCostField = document.getElementById('adminStoreAvgCost');
+  const promoField = document.getElementById('adminStorePromo');
+  const tagsField = document.getElementById('adminStoreTags');
+  const imageField = document.getElementById('adminStoreImage');
+  const managerPasswordField = document.getElementById('adminStoreManagerPassword');
+
+  if (!nameField || !categoryField) return;
+
+  const name = nameField.value.trim();
+  if (!name) {
+    toast('Store name is required', 'error');
+    nameField.focus();
+    return;
+  }
+
+  const numericValue = (field, { min = null, max = null, integer = false } = {}) => {
+    if (!field) return undefined;
+    const raw = String(field.value || '').trim();
+    if (!raw) return undefined;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return NaN;
+    let value = integer ? Math.round(parsed) : parsed;
+    if (min !== null) value = Math.max(min, value);
+    if (max !== null) value = Math.min(max, value);
+    return value;
+  };
+
+  const rating = numericValue(ratingField, { min: 0, max: 5 });
+  const deliveryTime = numericValue(deliveryField, { min: 10, max: 90, integer: true });
+  const minOrder = numericValue(minOrderField, { min: 0, integer: true });
+  const avgCost = numericValue(avgCostField, { min: 0, integer: true });
+  if ([rating, deliveryTime, minOrder, avgCost].some(value => Number.isNaN(value))) {
+    toast('Please enter valid numeric values for store settings', 'error');
+    return;
+  }
+
+  const tags = (tagsField?.value || '')
+    .split(',')
+    .map(tag => tag.trim())
+    .filter(Boolean);
+
+  const payload = {
+    name,
+    address: addressField?.value.trim() || '',
+    category: categoryField.value || 'essentials',
+    cuisine: cuisineField?.value.trim() || '',
+    promo: promoField?.value.trim() || '',
+    img: imageField?.value.trim() || '',
+    managerPassword: managerPasswordField?.value.trim() || '',
+  };
+  if (tags.length) payload.tags = tags;
+  if (rating !== undefined) payload.rating = rating;
+  if (deliveryTime !== undefined) payload.deliveryTime = deliveryTime;
+  if (minOrder !== undefined) payload.minOrder = minOrder;
+  if (avgCost !== undefined) payload.avgCost = avgCost;
+
+  try {
+    const data = await createAdminStore(payload);
+    const createdStore = data?.store || {};
+    adminSelectedStoreId = Number(createdStore.id) || adminSelectedStoreId;
+    adminCreatedStoreMeta = {
+      id: Number(createdStore.id) || 0,
+      name: createdStore.name || name,
+      managerPassword: data?.managerPassword || `Store${Number(createdStore.id) || 0}@QB`,
+    };
+
+    [nameField, addressField, cuisineField, deliveryField, ratingField, minOrderField, avgCostField, promoField, tagsField, imageField, managerPasswordField]
+      .filter(Boolean)
+      .forEach(field => {
+        field.value = '';
+      });
+    categoryField.value = 'essentials';
+
+    await loadRestaurantsForLocation(activeLocation, { toastOnFail: false });
+    adminPanelTab = 'add-store';
+    await renderAdmin();
+    toast(`Store created successfully. Manager password: ${adminCreatedStoreMeta.managerPassword}`, 'success');
   } catch (error) {
     handleSessionExpiry(error, { admin: true });
     if (error?.status === 401) {

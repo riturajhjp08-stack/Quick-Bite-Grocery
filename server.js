@@ -315,9 +315,10 @@ function buildStoreManagerDefaultPassword(storeId) {
   return `Store${Number(storeId) || 0}@QB`;
 }
 
-function createStoreManagerAccount(storeId, now = Date.now()) {
+function createStoreManagerAccount(storeId, now = Date.now(), password = '') {
   const normalizedStoreId = toWholeNumber(storeId, 0);
-  const passwordMeta = hashPassword(buildStoreManagerDefaultPassword(normalizedStoreId));
+  const managerPassword = normalizeText(password, 120) || buildStoreManagerDefaultPassword(normalizedStoreId);
+  const passwordMeta = hashPassword(managerPassword);
 
   return {
     storeId: normalizedStoreId,
@@ -1602,6 +1603,71 @@ async function handleGetAdminMe(req, res) {
   sendJson(res, 200, { access: toAdminAccessPayload(access) });
 }
 
+async function handleAdminCreateStore(req, res) {
+  const body = await readJsonBody(req);
+  const store = await readStore();
+  pruneExpiredSessions(store);
+
+  const access = getAdminAccess(store, req);
+  if (!access) {
+    return sendError(res, 401, 'Admin session expired. Please unlock the dashboard again.');
+  }
+  if (access.role === 'store') {
+    return sendError(res, 403, 'Store managers cannot create new stores.');
+  }
+
+  const name = normalizeText(body.name, 120);
+  if (!name) {
+    return sendError(res, 400, 'Store name is required');
+  }
+
+  const normalizedName = name.toLowerCase();
+  const duplicate = (store.catalogStores || []).some(entry => normalizeText(entry.name, 120).toLowerCase() === normalizedName);
+  if (duplicate) {
+    return sendError(res, 409, 'A store with this name already exists');
+  }
+
+  const maxStoreId = (store.catalogStores || [])
+    .reduce((max, entry) => Math.max(max, toWholeNumber(entry.id, 0)), 300);
+  const nextStoreId = maxStoreId + 1;
+  const managerPassword = normalizeText(body.managerPassword, 120) || buildStoreManagerDefaultPassword(nextStoreId);
+
+  const newStore = sanitizeCatalogStore({
+    id: nextStoreId,
+    name,
+    cuisine: normalizeText(body.cuisine, 120) || 'Daily Grocery Essentials',
+    rating: Math.min(5, Math.max(0, Number(body.rating) || 4.5)),
+    deliveryTime: Math.max(10, Math.min(90, toWholeNumber(body.deliveryTime, 30))),
+    minOrder: toWholeNumber(body.minOrder, 199),
+    avgCost: toWholeNumber(body.avgCost, 500),
+    category: normalizeCategory(body.category || 'essentials'),
+    promo: normalizeText(body.promo, 90) || 'Fresh grocery picks available daily',
+    tags: Array.isArray(body.tags)
+      ? body.tags.map(tag => normalizeText(tag, 30)).filter(Boolean)
+      : ['New Store'],
+    img: normalizeText(body.img, 500) || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&q=80&auto=format&fit=crop',
+    address: normalizeText(body.address, 180) || 'Service area not specified',
+    menu: [],
+  });
+
+  if (!newStore) {
+    return sendError(res, 400, 'Invalid store payload');
+  }
+
+  store.catalogStores.push(newStore);
+  store.storeManagers = (store.storeManagers || []).filter(entry => Number(entry.storeId) !== newStore.id);
+  store.storeManagers.push(createStoreManagerAccount(newStore.id, Date.now(), managerPassword));
+
+  await writeStore(store);
+
+  sendJson(res, 201, {
+    store: newStore,
+    managerPassword,
+    summary: buildInventorySummary(store.catalogStores || []),
+    access: toAdminAccessPayload(access),
+  });
+}
+
 async function handleAdminCreateProduct(req, res) {
   const body = await readJsonBody(req);
   const store = await readStore();
@@ -2094,6 +2160,9 @@ async function handleApiRequest(req, res, url) {
   }
   if (req.method === 'GET' && pathname === '/api/admin/catalog') {
     return handleGetAdminCatalog(req, res);
+  }
+  if (req.method === 'POST' && pathname === '/api/admin/stores') {
+    return handleAdminCreateStore(req, res);
   }
   if (req.method === 'POST' && pathname === '/api/admin/products') {
     return handleAdminCreateProduct(req, res);
