@@ -1,0 +1,13 @@
+{
+  "name": "quickbite-real-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "QuickBite grocery app with Node.js backend and local demo fallback",
+  "scripts": {
+    "start": "node backend.js",
+    "dev": "node --watch backend.js"
+  },
+  "dependencies": {
+    "@vercel/kv": "^2.0.0"
+  }
+}
