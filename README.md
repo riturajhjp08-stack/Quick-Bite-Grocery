@@ -15,8 +15,17 @@ The UI keeps the original QuickBite design style, while the product logic is now
 - Frontend: HTML5, CSS3, Vanilla JavaScript
 - Backend: Node.js HTTP server (`server.js`)
 - Storage:
-  - Local: JSON file (`data/store.json`)
+  - Local default: SQLite (`data/store.db`) with automatic JSON mirror (`data/store.json`)
   - Vercel: Vercel KV (`@vercel/kv`) recommended for persistence
+
+### Storage Modes
+- `Vercel KV` (if `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set) is used as primary storage.
+- Otherwise, local runtime uses `SQLite` as primary storage and keeps `data/store.json` synced as a readable backup/export.
+- If SQLite is disabled or unavailable, backend falls back to JSON file storage.
+
+Useful env vars:
+- `QB_ENABLE_SQLITE=0` to force-disable SQLite and use JSON file only.
+- `QB_SQLITE_PATH=/custom/path/quickbite.db` to change SQLite file path.
 
 ## Main Features
 
@@ -96,6 +105,7 @@ QuickBite/
 ├── app.js
 ├── server.js
 ├── data/
+│   ├── store.db
 │   └── store.json
 ├── package.json
 └── README.md

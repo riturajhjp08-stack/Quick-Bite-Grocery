@@ -8,6 +8,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const ROOT_DIR = __dirname;
 const DATA_DIR = path.join(ROOT_DIR, 'data');
 const STORE_PATH = path.join(DATA_DIR, 'store.json');
+const SQLITE_STORE_PATH = process.env.QB_SQLITE_PATH || path.join(DATA_DIR, 'store.db');
 const APP_USER_AGENT = process.env.QB_APP_USER_AGENT || 'QuickBiteLiveDemo/1.0 (local project app)';
 const ADMIN_PASSWORD = process.env.QB_ADMIN_PASSWORD || 'QuickBite@2026';
 const NOMINATIM_SEARCH_URL = process.env.QB_NOMINATIM_SEARCH_URL || 'https://nominatim.openstreetmap.org/search';
@@ -21,6 +22,7 @@ const ADMIN_SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const LIVE_RESTAURANT_CACHE_TTL_MS = 1000 * 60 * 15;
 const KV_STORE_KEY = 'quickbite:store:v1';
 const IS_VERCEL_RUNTIME = Boolean(process.env.VERCEL);
+const SQLITE_STORAGE_ENABLED = process.env.QB_ENABLE_SQLITE !== '0';
 
 let kvClient = null;
 try {
@@ -31,7 +33,17 @@ try {
   console.warn('Vercel KV is not available; using file or volatile store fallback.');
 }
 
+let SqliteDatabaseSync = null;
+if (SQLITE_STORAGE_ENABLED && !kvClient && !IS_VERCEL_RUNTIME) {
+  try {
+    ({ DatabaseSync: SqliteDatabaseSync } = require('node:sqlite'));
+  } catch {
+    console.warn('node:sqlite is not available; using JSON store fallback.');
+  }
+}
+
 let volatileStore = null;
+let sqliteDb = null;
 
 const couponCatalog = {
   FIRST50: {
@@ -399,6 +411,60 @@ function migrateStoreShape(existing) {
   return store;
 }
 
+function isSqliteStorageActive() {
+  return Boolean(SqliteDatabaseSync) && !kvClient && !IS_VERCEL_RUNTIME;
+}
+
+function getSqliteDb() {
+  if (!isSqliteStorageActive()) return null;
+  if (sqliteDb) return sqliteDb;
+
+  sqliteDb = new SqliteDatabaseSync(SQLITE_STORE_PATH);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      store_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  return sqliteDb;
+}
+
+function readStoreFromSqlite() {
+  const db = getSqliteDb();
+  if (!db) return null;
+
+  const row = db.prepare('SELECT store_json FROM app_state WHERE id = 1').get();
+  if (!row || !row.store_json) return null;
+
+  try {
+    return migrateStoreShape(JSON.parse(row.store_json));
+  } catch {
+    console.warn('SQLite app_state payload was invalid JSON. Rebuilding from backup.');
+    return null;
+  }
+}
+
+function writeStoreToSqlite(store) {
+  const db = getSqliteDb();
+  if (!db) return;
+
+  const payload = JSON.stringify(migrateStoreShape(store));
+  db.prepare(`
+    INSERT INTO app_state (id, store_json, updated_at)
+    VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      store_json = excluded.store_json,
+      updated_at = excluded.updated_at
+  `).run(payload, Date.now());
+}
+
+async function writeStoreMirrorFile(store) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(STORE_PATH, JSON.stringify(migrateStoreShape(store), null, 2));
+}
+
 async function ensureVolatileStore() {
   if (volatileStore) return;
 
@@ -428,6 +494,31 @@ async function ensureStoreFile() {
     if (!stored) {
       await writeStoreToKV(migrateStoreShape(null));
     }
+    return;
+  }
+
+  if (isSqliteStorageActive()) {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    getSqliteDb();
+
+    let fileStore = null;
+    try {
+      fileStore = JSON.parse(await fs.readFile(STORE_PATH, 'utf8'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn('Store file was unreadable. Rebuilding from SQLite/default store.');
+      }
+      fileStore = null;
+    }
+
+    const sqliteStore = readStoreFromSqlite();
+    const baseline = sqliteStore || migrateStoreShape(fileStore);
+
+    if (!sqliteStore) {
+      writeStoreToSqlite(baseline);
+    }
+
+    await writeStoreMirrorFile(baseline);
     return;
   }
 
@@ -467,6 +558,16 @@ async function readStore() {
     return fresh;
   }
 
+  if (isSqliteStorageActive()) {
+    const stored = readStoreFromSqlite();
+    if (stored) return stored;
+
+    const fresh = migrateStoreShape(null);
+    writeStoreToSqlite(fresh);
+    await writeStoreMirrorFile(fresh);
+    return fresh;
+  }
+
   if (IS_VERCEL_RUNTIME) {
     await ensureVolatileStore();
     return migrateStoreShape(volatileStore);
@@ -481,6 +582,12 @@ async function writeStore(store) {
 
   if (kvClient) {
     await writeStoreToKV(nextStore);
+    return;
+  }
+
+  if (isSqliteStorageActive()) {
+    writeStoreToSqlite(nextStore);
+    await writeStoreMirrorFile(nextStore);
     return;
   }
 
