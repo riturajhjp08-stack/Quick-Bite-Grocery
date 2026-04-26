@@ -347,6 +347,30 @@ function createDefaultCatalogStores() {
   }));
 }
 
+function mergeMissingDefaultCatalogStores(store) {
+  const defaultStores = createDefaultCatalogStores();
+  const existingById = new Map((store.catalogStores || []).map(storeEntry => [storeEntry.id, storeEntry]));
+  const LEGACY_STORE_COVER_BY_ID = {
+    303: 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=800&q=80&auto=format&fit=crop',
+  };
+
+  defaultStores.forEach(defaultStore => {
+    const existing = existingById.get(defaultStore.id);
+    if (!existing) {
+      store.catalogStores.push(defaultStore);
+      return;
+    }
+
+    // Preserve user-managed stores, but update known stale default cover images.
+    const legacyCover = LEGACY_STORE_COVER_BY_ID[defaultStore.id];
+    if (existing.name === defaultStore.name && (!existing.img || (legacyCover && existing.img === legacyCover))) {
+      existing.img = defaultStore.img;
+    }
+  });
+
+  store.catalogStores.sort((a, b) => a.id - b.id);
+}
+
 function buildStoreManagerDefaultPassword(storeId) {
   return `Store${Number(storeId) || 0}@QB`;
 }
@@ -381,6 +405,7 @@ function migrateStoreShape(existing) {
   if (!store.catalogStores.length) {
     store.catalogStores = createDefaultCatalogStores();
   }
+  mergeMissingDefaultCatalogStores(store);
 
   const validStoreIds = new Set(store.catalogStores.map(entry => entry.id));
   if (!Array.isArray(store.storeManagers)) store.storeManagers = [];

@@ -157,6 +157,11 @@ let liveRestaurantsError = '';
 let restaurantSourceNote = 'Loading grocery catalogue';
 let restaurantFetchRequestId = 0;
 let searchDebounceTimer = null;
+let lastLiveBackendProbeAt = 0;
+let lastLiveBackendProbeOk = false;
+let liveBackendProbePromise = null;
+const LIVE_BACKEND_PROBE_INTERVAL_MS = 4000;
+const LIVE_BACKEND_PROBE_TIMEOUT_MS = 1500;
 
 const availableLocations = [
   'Chandigarh, India',
@@ -696,6 +701,55 @@ function updateBackendModePill() {
   pill.title = isFallback
     ? 'Backend API unavailable. Running on local browser demo data.'
     : 'Connected to backend API.';
+}
+
+async function probeLiveBackend(options = {}) {
+  const { force = false } = options;
+  const now = Date.now();
+
+  if (!force && liveBackendProbePromise) return liveBackendProbePromise;
+  if (!force && now - lastLiveBackendProbeAt < LIVE_BACKEND_PROBE_INTERVAL_MS) return lastLiveBackendProbeOk;
+
+  lastLiveBackendProbeAt = now;
+  const healthUrl = new URL('/api/health', API_BASE_URL).toString();
+  liveBackendProbePromise = (async () => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), LIVE_BACKEND_PROBE_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(healthUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      const contentType = response.headers.get('content-type') || '';
+      lastLiveBackendProbeOk = response.ok && contentType.includes('application/json');
+      return lastLiveBackendProbeOk;
+    } catch {
+      lastLiveBackendProbeOk = false;
+      return false;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  })();
+
+  try {
+    return await liveBackendProbePromise;
+  } finally {
+    liveBackendProbePromise = null;
+  }
+}
+
+async function tryRecoverLiveBackend() {
+  if (!localDemoBackendActive) return true;
+  const reachable = await probeLiveBackend();
+  if (!reachable) return false;
+
+  localDemoBackendActive = false;
+  updateBackendModePill();
+  toast('Backend reconnected. Switched back to live mode.', 'success');
+  return true;
 }
 
 function activateLocalDemoBackend(reason = 'unreachable') {
@@ -1369,16 +1423,19 @@ async function apiRequest(endpoint, options = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
 
   // Keep request routing consistent after fallback activates.
-  // Switching between remote and local demo backends can invalidate auth sessions.
+  // When fallback is active, periodically probe live backend and recover automatically.
   if (localDemoBackendActive) {
-    return localApiRequest(endpoint, {
-      method,
-      body,
-      auth,
-      admin,
-      token,
-      reason: 'sticky-local-demo',
-    });
+    const restored = await tryRecoverLiveBackend();
+    if (!restored) {
+      return localApiRequest(endpoint, {
+        method,
+        body,
+        auth,
+        admin,
+        token,
+        reason: 'sticky-local-demo',
+      });
+    }
   }
 
   let response;
@@ -1390,6 +1447,12 @@ async function apiRequest(endpoint, options = {}) {
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
+    const reachable = await probeLiveBackend({ force: true });
+    if (reachable) {
+      const error = new Error('Backend request failed. Please try again.');
+      error.status = 503;
+      throw error;
+    }
     return localApiRequest(endpoint, {
       method,
       body,
@@ -1410,6 +1473,12 @@ async function apiRequest(endpoint, options = {}) {
       && !contentType.includes('application/json')
       && response.status === 404;
     if (isLikelyWrongServer) {
+      const reachable = await probeLiveBackend({ force: true });
+      if (reachable) {
+        const error = new Error('API route is unavailable on the connected backend.');
+        error.status = response.status;
+        throw error;
+      }
       return localApiRequest(endpoint, {
         method,
         body,
